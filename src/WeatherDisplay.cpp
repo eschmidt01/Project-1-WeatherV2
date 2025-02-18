@@ -123,8 +123,9 @@ bool WeatherDisplay::checkToggleButtonPressed() {
         auto pos = M5.Touch.getPressPoint();
         int x = pos.x;
         int y = pos.y;
-        // Left-bottom button area (adjusted for new size)
+        // Left-bottom button area
         if (x >= 10 && x <= 70 && y >= M5.Lcd.height() - 60 && y <= M5.Lcd.height() - 20) {
+            // Debounce the button press with a 300ms delay
             if (millis() - lastToggleTime > 300) {
                 lastToggleTime = millis();
                 return true;
@@ -158,9 +159,10 @@ void WeatherDisplay::drawWeatherImage(String iconId, int resizeMult) {
     
     int sWidth = M5.Lcd.width();
     int sHeight = M5.Lcd.height();
-    int yOffset = -(resizeMult * imgSqDim - sHeight) / 2;
+    int yOffset = -(resizeMult * imgSqDim - sHeight) / 2 - 30;
     int xOffset = sWidth - (imgSqDim * resizeMult * 0.8); // right-aligned
     
+    // Iterating through the icons bitmap data and drawing pixels
     for (int y = 0; y < imgSqDim; y++) {
         for (int x = 0; x < imgSqDim; x++) {
             int pixNum = (y * imgSqDim) + x;

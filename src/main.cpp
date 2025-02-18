@@ -12,7 +12,6 @@ String wifiPassword = "27431sushi";
 // OpenWeatherMap API key
 String apiKey = "f8ec5beb193c8f444a71879d2a5ecb30";
 
-
 // Global timing variables
 unsigned long lastUpdateTime = 0;
 unsigned long timerDelay = 300000; // 5 minutes; adjust for testing if needed
@@ -45,6 +44,24 @@ void connectWiFi() {
   Serial.println(WiFi.localIP());
 }
 
+String formatTime(unsigned long epochTime) {
+  // Convert epoch time to a HH:MM AM/PM format
+  int hours = (epochTime % 86400L) / 3600;  // Get hours (0-23)
+  int minutes = (epochTime % 3600) / 60;    // Get minutes (0-59)
+
+  String ampm = "AM";
+  if (hours >= 12) {
+      ampm = "PM";
+      if (hours > 12) hours -= 12;  // Convert 24-hour to 12-hour format
+  }
+  if (hours == 0) hours = 12;  // Handle midnight case
+
+  char timeStr[8];
+  sprintf(timeStr, "%d:%02d %s", hours, minutes, ampm.c_str());
+  
+  return String(timeStr);
+}
+
 void setup() {
   Serial.begin(115200);
   M5.begin();
@@ -59,7 +76,7 @@ void setup() {
   // Initial weather fetch
   weatherDisplay.updateWeather(currentZip);
   timeClient.update();
-  weatherDisplay.lastSyncTime = timeClient.getFormattedTime();
+  weatherDisplay.lastSyncTime = formatTime(timeClient.getEpochTime());
   
   lastUpdateTime = millis();
   needRedraw = true;
@@ -74,7 +91,7 @@ void loop() {
       if (millis() - lastUpdateTime > timerDelay) {
         weatherDisplay.updateWeather(currentZip);
         timeClient.update();
-        weatherDisplay.lastSyncTime = timeClient.getFormattedTime();
+        weatherDisplay.lastSyncTime = formatTime(timeClient.getEpochTime());
         lastUpdateTime = millis();
         needRedraw = true;
       }
@@ -110,7 +127,7 @@ void loop() {
         currentZip = zipEdit.getZip();
         weatherDisplay.updateWeather(currentZip);
         timeClient.update();
-        weatherDisplay.lastSyncTime = timeClient.getFormattedTime();
+        weatherDisplay.lastSyncTime = formatTime(timeClient.getEpochTime());
         currentState = WEATHER_SCREEN;
         needRedraw = true;
       }

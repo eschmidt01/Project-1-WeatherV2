@@ -1,137 +1,54 @@
-#include <M5Core2.h>
-#include <WiFi.h>
-#include <NTPClient.h>
-#include <WiFiUdp.h>
-#include "WeatherDisplay.h"
-#include "ZipEdit.h"
+#include <M5Unified.h>
+#include <Wire.h>
+#include <Adafruit_VCNL4040.h>
 
-// WiFi credentials
-String wifiNetworkName = "SHaven";
-String wifiPassword = "27431sushi";
+Adafruit_VCNL4040 vcnl;
 
-// OpenWeatherMap API key
-String apiKey = "f8ec5beb193c8f444a71879d2a5ecb30";
-
-// Global timing variables
-unsigned long lastUpdateTime = 0;
-unsigned long timerDelay = 300000; // 5 minutes; adjust for testing if needed
-
-// Application states
-enum AppState { WEATHER_SCREEN, ZIP_EDIT_SCREEN };
-AppState currentState = WEATHER_SCREEN;
-
-String currentZip = "20001"; // Default zip code
-bool isFahrenheit = true;      // Temperature display unit
-
-// NTP client for time synchronization
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000);
-
-WeatherDisplay weatherDisplay;
-ZipEdit zipEdit;
-
-bool needRedraw = true;
-
-void connectWiFi() {
-  WiFi.begin(wifiNetworkName.c_str(), wifiPassword.c_str());
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(50);
-    Serial.print(".");
-  }
-  Serial.println();
-  Serial.print("Connected with IP: ");
-  Serial.println(WiFi.localIP());
-}
-
-String formatTime(unsigned long epochTime) {
-  // Convert epoch time to a HH:MM AM/PM format
-  int hours = (epochTime % 86400L) / 3600;  // Get hours (0-23)
-  int minutes = (epochTime % 3600) / 60;    // Get minutes (0-59)
-
-  String ampm = "AM";
-  if (hours >= 12) {
-      ampm = "PM";
-      if (hours > 12) hours -= 12;  // Convert 24-hour to 12-hour format
-  }
-  if (hours == 0) hours = 12;  // Handle midnight case
-
-  char timeStr[8];
-  sprintf(timeStr, "%d:%02d %s", hours, minutes, ampm.c_str());
-  
-  return String(timeStr);
-}
+// Adjusted mapping constants based on observed sensor range.
+const uint16_t SENSOR_MIN = 0;   // or 1 if you prefer
+const uint16_t SENSOR_MAX = 600;
+const int FREQ_MIN = 600;        // Frequency when far
+const int FREQ_MAX = 3000;       // Frequency when very close
 
 void setup() {
+  auto cfg = M5.config();
+  M5.begin(cfg);
   Serial.begin(115200);
-  M5.begin();
-  M5.Lcd.setRotation(1);
-  connectWiFi();
-  timeClient.begin();
-  
-  // Initialize both screens
-  weatherDisplay.init(apiKey);
-  zipEdit.init(currentZip);
 
-  // Initial weather fetch
-  weatherDisplay.updateWeather(currentZip);
-  timeClient.update();
-  weatherDisplay.lastSyncTime = formatTime(timeClient.getEpochTime());
-  
-  lastUpdateTime = millis();
-  needRedraw = true;
+  // Initialize I2C on pins 27 (SDA) and 19 (SCL)
+  if (!Wire.begin(27, 19)) {
+    Serial.println("I2C initialization failed!");
+    while (1);
+  }
+
+  // Initialize the speaker and set volume to max (0-11 per docs)
+  M5.Speaker.begin();
+  //M5.Speaker.setVolume();
+
+  // Initialize the VCNL4040 sensor.
+  if (!vcnl.begin()) {
+    Serial.println("VCNL4040 sensor not found!");
+    while (1);
+  }
+  Serial.println("Setup complete.");
 }
 
 void loop() {
-  M5.update();
-  
-  switch (currentState) {
-    case WEATHER_SCREEN:
-      // Update weather every timerDelay
-      if (millis() - lastUpdateTime > timerDelay) {
-        weatherDisplay.updateWeather(currentZip);
-        timeClient.update();
-        weatherDisplay.lastSyncTime = formatTime(timeClient.getEpochTime());
-        lastUpdateTime = millis();
-        needRedraw = true;
-      }
-      
-      // Only redraw if needed
-      if (needRedraw) {
-        weatherDisplay.draw(isFahrenheit);
-        needRedraw = false;
-      }
-      
-      // Check for touch on the toggle button
-      if (weatherDisplay.checkToggleButtonPressed()) {
-        isFahrenheit = !isFahrenheit;
-        needRedraw = true;
-      }
-      
-      // Check for touch on the Edit Zip button
-      if (weatherDisplay.checkEditZipButtonPressed()) {
-        zipEdit.setZip(currentZip);
-        currentState = ZIP_EDIT_SCREEN;
-        needRedraw = true;
-      }
-      break;
-      
-    case ZIP_EDIT_SCREEN:
-      // Redraw zip edit screen when needed
-      if (needRedraw) {
-        zipEdit.display();
-        needRedraw = false;
-      }
-      zipEdit.handleTouch();
-      if (zipEdit.isSavePressed()) {
-        currentZip = zipEdit.getZip();
-        weatherDisplay.updateWeather(currentZip);
-        timeClient.update();
-        weatherDisplay.lastSyncTime = formatTime(timeClient.getEpochTime());
-        currentState = WEATHER_SCREEN;
-        needRedraw = true;
-      }
-      break;
-  }
-  delay(20); // minimal delay to avoid busy-looping
+  M5.update();  // Update internal M5 state (recommended)
+
+  // Read the proximity sensor value.
+  uint16_t proximity = vcnl.getProximity();
+
+  // Map the sensor reading to a tone frequency.
+  int frequency = map(proximity, SENSOR_MIN, SENSOR_MAX, FREQ_MIN, FREQ_MAX);
+  frequency = constrain(frequency, FREQ_MIN, FREQ_MAX);
+
+  // Debug print: shows sensor reading and computed frequency.
+  Serial.printf("Proximity: %d, Frequency: %d Hz\n", proximity, frequency);
+
+  // Play the tone at the computed frequency for 200 ms.
+  M5.Speaker.tone(frequency, 100); //beep beep
+
+  // Small delay before next reading.
+  delay(10*proximity);
 }

@@ -1,61 +1,137 @@
-#include <M5Unified.h>
-#include <Wire.h>
-#include <Adafruit_VCNL4040.h>
+#include <M5Core2.h>
+#include <WiFi.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include "WeatherDisplay.h"
+#include "ZipEdit.h"
 
-Adafruit_VCNL4040 vcnl;
+// WiFi credentials
+String wifiNetworkName = "SHaven";
+String wifiPassword = "27431sushi";
 
-const uint16_t SENSOR_MIN = 0, SENSOR_MAX = 600;
-const int TONE_FREQ_MIN = 600, TONE_FREQ_MAX = 3000;
-const unsigned long PERIOD_MAX = 1000, PERIOD_MIN = 200;
+// OpenWeatherMap API key
+String apiKey = "f8ec5beb193c8f444a71879d2a5ecb30";
 
-unsigned long lastToggleTime = 0;
-bool beepState = false;
+// Global timing variables
+unsigned long lastUpdateTime = 0;
+unsigned long timerDelay = 300000; // 5 minutes; adjust for testing if needed
+
+// Application states
+enum AppState { WEATHER_SCREEN, ZIP_EDIT_SCREEN };
+AppState currentState = WEATHER_SCREEN;
+
+String currentZip = "20001"; // Default zip code
+bool isFahrenheit = true;      // Temperature display unit
+
+// NTP client for time synchronization
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000);
+
+WeatherDisplay weatherDisplay;
+ZipEdit zipEdit;
+
+bool needRedraw = true;
+
+void connectWiFi() {
+  WiFi.begin(wifiNetworkName.c_str(), wifiPassword.c_str());
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(50);
+    Serial.print(".");
+  }
+  Serial.println();
+  Serial.print("Connected with IP: ");
+  Serial.println(WiFi.localIP());
+}
+
+String formatTime(unsigned long epochTime) {
+  // Convert epoch time to a HH:MM AM/PM format
+  int hours = (epochTime % 86400L) / 3600;  // Get hours (0-23)
+  int minutes = (epochTime % 3600) / 60;    // Get minutes (0-59)
+
+  String ampm = "AM";
+  if (hours >= 12) {
+      ampm = "PM";
+      if (hours > 12) hours -= 12;  // Convert 24-hour to 12-hour format
+  }
+  if (hours == 0) hours = 12;  // Handle midnight case
+
+  char timeStr[8];
+  sprintf(timeStr, "%d:%02d %s", hours, minutes, ampm.c_str());
+  
+  return String(timeStr);
+}
 
 void setup() {
-  auto cfg = M5.config();
-  M5.begin(cfg);
   Serial.begin(115200);
-  Serial.println("Starting up...");
-  Wire.begin(27, 19);
-  M5.Speaker.begin();
+  M5.begin();
+  M5.Lcd.setRotation(1);
+  connectWiFi();
+  timeClient.begin();
+  
+  // Initialize both screens
+  weatherDisplay.init(apiKey);
+  zipEdit.init(currentZip);
 
-  if (!vcnl.begin()) {
-    Serial.println("VCNL4040 sensor not found!");
-    while (1);
-  }
-  Serial.println("VCNL4040 sensor detected.");
-
-  if (M5.getBoard() == m5::board_t::board_M5StackCore2)
-    Serial.println("Board is M5Stack Core2, vibration motor available.");
-  else
-    Serial.println("Board is not M5Stack Core2; check vibration motor support.");
-
-  Serial.println("Setup complete.");
+  // Initial weather fetch
+  weatherDisplay.updateWeather(currentZip);
+  timeClient.update();
+  weatherDisplay.lastSyncTime = formatTime(timeClient.getEpochTime());
+  
+  lastUpdateTime = millis();
+  needRedraw = true;
 }
 
 void loop() {
   M5.update();
-  uint16_t proximity = vcnl.getProximity();
-  int toneFreq = constrain(map(proximity, SENSOR_MIN, SENSOR_MAX, TONE_FREQ_MIN, TONE_FREQ_MAX), TONE_FREQ_MIN, TONE_FREQ_MAX);
-  unsigned long period = constrain(map(proximity, SENSOR_MIN, SENSOR_MAX, PERIOD_MAX, PERIOD_MIN), PERIOD_MIN, PERIOD_MAX);
-  unsigned long halfPeriod = period / 2;
-  unsigned long currentTime = millis();
-
-  if (currentTime - lastToggleTime >= halfPeriod) {
-    lastToggleTime = currentTime;
-    beepState = !beepState;
-    if (beepState) {
-      M5.Speaker.tone(toneFreq, halfPeriod);
-      if (M5.getBoard() == m5::board_t::board_M5StackCore2)
-        M5.Power.Axp192.setLDO3(3300);
-    } else {
-      M5.Speaker.stop();
-      if (M5.getBoard() == m5::board_t::board_M5StackCore2)
-        M5.Power.Axp192.setLDO3(0);
-    }
+  
+  switch (currentState) {
+    case WEATHER_SCREEN:
+      // Update weather every timerDelay
+      if (millis() - lastUpdateTime > timerDelay) {
+        weatherDisplay.updateWeather(currentZip);
+        timeClient.update();
+        weatherDisplay.lastSyncTime = formatTime(timeClient.getEpochTime());
+        lastUpdateTime = millis();
+        needRedraw = true;
+      }
+      
+      // Only redraw if needed
+      if (needRedraw) {
+        weatherDisplay.draw(isFahrenheit);
+        needRedraw = false;
+      }
+      
+      // Check for touch on the toggle button
+      if (weatherDisplay.checkToggleButtonPressed()) {
+        isFahrenheit = !isFahrenheit;
+        needRedraw = true;
+      }
+      
+      // Check for touch on the Edit Zip button
+      if (weatherDisplay.checkEditZipButtonPressed()) {
+        zipEdit.setZip(currentZip);
+        currentState = ZIP_EDIT_SCREEN;
+        needRedraw = true;
+      }
+      break;
+      
+    case ZIP_EDIT_SCREEN:
+      // Redraw zip edit screen when needed
+      if (needRedraw) {
+        zipEdit.display();
+        needRedraw = false;
+      }
+      zipEdit.handleTouch();
+      if (zipEdit.isSavePressed()) {
+        currentZip = zipEdit.getZip();
+        weatherDisplay.updateWeather(currentZip);
+        timeClient.update();
+        weatherDisplay.lastSyncTime = formatTime(timeClient.getEpochTime());
+        currentState = WEATHER_SCREEN;
+        needRedraw = true;
+      }
+      break;
   }
-
-  Serial.printf("Proximity: %d, ToneFreq: %d Hz, Period: %lu ms, BeepState: %d\n",
-                proximity, toneFreq, period, beepState);
-  delay(10);
+  delay(20); // minimal delay to avoid busy-looping
 }

@@ -14,7 +14,7 @@ const int TONE_FREQ_MIN = 600;   // Hz
 const int TONE_FREQ_MAX = 3000;  // Hz
 
 // Square-wave period for beeping/vibration: longer period when far, shorter when close.
-// For example, far = 1000 ms total cycle (500ms on/500ms off), close = 200 ms cycle (100ms on/100ms off)
+// Far = 1000 ms total cycle (500ms on/500ms off), close = 200 ms cycle (100ms on/100ms off)
 const unsigned long PERIOD_MAX = 1000; // ms (when far)
 const unsigned long PERIOD_MIN = 200;  // ms (when close)
 
@@ -34,7 +34,6 @@ void setup() {
 
   // Initialize the speaker.
   M5.Speaker.begin();
-  // Optionally, adjust speaker volume here if needed, e.g., M5.Speaker.setVolume(64);
 
   // Initialize the VCNL4040 sensor.
   if (!vcnl.begin()) {
@@ -43,7 +42,7 @@ void setup() {
   }
   Serial.println("VCNL4040 sensor detected.");
 
-  // (Optional) Identify board before using vibration motor:
+  // Identify board before using vibration motor:
   if (M5.getBoard() == m5::board_t::board_M5StackCore2) {
     Serial.println("Board is M5Stack Core2, vibration motor available via AXP_LDO3.");
   } else {
@@ -83,7 +82,6 @@ void loop() {
       // Play the tone at the computed frequency for halfPeriod milliseconds.
       M5.Speaker.tone(toneFreq, halfPeriod);
       // Activate the vibration motor by setting AXP_LDO3 to 3300 mV.
-      // This is specific to the M5Stack Core2.
       if (M5.getBoard() == m5::board_t::board_M5StackCore2) {
         M5.Power.Axp192.setLDO3(3300);
       }
@@ -97,10 +95,9 @@ void loop() {
     }
   }
 
-  // Optional: Debug output.
+  // Debug output.
   Serial.printf("Proximity: %d, ToneFreq: %d Hz, Period: %lu ms, BeepState: %d\n",
                 proximity, toneFreq, period, beepState);
 
-  // A short delay to ease CPU load.
   delay(10);
 }

@@ -76,7 +76,7 @@ void loop() {
   int dx = 0, dy = 0;
   if (joyX > center + threshold) dx = 1;
   else if (joyX < center - threshold) dx = -1;
-  if (joyY > center + threshold) dy = -1;  // Flip up/down (invert)
+  if (joyY > center + threshold) dy = -1;  // Flip up/down (Invert)
   else if (joyY < center - threshold) dy = 1;
 
 
